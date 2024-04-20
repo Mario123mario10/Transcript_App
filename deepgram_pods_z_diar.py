@@ -3,7 +3,9 @@ from dotenv import load_dotenv
 import json
 from deep_translator import GoogleTranslator
 import requests
-
+import pyaudio
+import wave
+from threading import Thread
 
 
 from deepgram import (
@@ -14,9 +16,50 @@ from deepgram import (
 
 load_dotenv()
 
-AUDIO_FILE = "lepsze_nagranie_burzy_mozgow.mp3"
+IS_RECORDING = True
 
-API_KEY = '011a7fb2c1f33a7ff7337bb0ea33104d7424466d'
+
+def record_to_file(file_name):
+    CHUNK = 1024
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 2
+    RATE = 44100
+    WAVE_OUTPUT_FILENAME = file_name
+
+    p = pyaudio.PyAudio()
+
+    stream = p.open(format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                frames_per_buffer=CHUNK)
+
+    #print("* recording")
+
+    frames = []
+
+    # for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+    #     data = stream.read(CHUNK)
+    #     frames.append(data)
+
+    global IS_RECORDING
+    while IS_RECORDING:
+        data = stream.read(CHUNK)
+        frames.append(data)
+
+    #print("* done recording")
+
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+
+    wf = wave.open(WAVE_OUTPUT_FILENAME, 'wb')
+    wf.setnchannels(CHANNELS)
+    wf.setsampwidth(p.get_sample_size(FORMAT))
+    wf.setframerate(RATE)
+    wf.writeframes(b''.join(frames))
+    wf.close()
+
 
 def translate(source_lang, target_lang, text):
 
@@ -38,15 +81,14 @@ def translate(source_lang, target_lang, text):
         sep_text = ""
 
 
-def main():
+def generate_transcript(audio_file, api_key):
     try:
+        deepgram = DeepgramClient(api_key)
 
-        deepgram = DeepgramClient(API_KEY)
-
-        with open(AUDIO_FILE, "rb") as file:
+        with open(audio_file, "rb") as file:
             buffer_data = file.read()
 
-        print(len(buffer_data))
+        #print(len(buffer_data))
 
         payload: FileSource = {
             "buffer": buffer_data,
@@ -73,6 +115,7 @@ def main():
         response = deepgram.listen.prerecorded.v("1").transcribe_file(payload, options, timeout=300)
         utterances = response['results']['utterances']
 
+        print(utterances)
         transcript_parts = []
 
         for utterance in utterances:
@@ -119,6 +162,32 @@ def main():
 
     except Exception as e:
         print(f"Exception: {e}")
+
+
+
+
+
+
+def main():
+    AUDIO_FILE = "Brainstorming_Example.mp3"
+    #AUDIO_FILE = "lepsze_nagranie_burzy_mozgow.mp3"
+    API_KEY = '011a7fb2c1f33a7ff7337bb0ea33104d7424466d'
+
+    output_file = "output.wav"
+    recording_thread = Thread(target=record_to_file, args=(output_file,))
+
+    input("press enter to start recording")
+    recording_thread.start()
+    input("press enter to stop recording")
+
+    global IS_RECORDING
+    IS_RECORDING = False
+
+    recording_thread.join()
+    print("after recording")
+
+    AUDIO_FILE = output_file
+    generate_transcript(AUDIO_FILE, API_KEY)
 
 
 
